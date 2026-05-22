@@ -33,6 +33,7 @@ DEFAULT_BACKDROP_WIDTH = 420
 DEFAULT_BACKDROP_HEIGHT = 260
 DEFAULT_STICKY_WIDTH = 260
 DEFAULT_STICKY_HEIGHT = 150
+STICKY_CORNER_CUT = 18
 
 BACKDROP_ITEMS = []
 EVENT_FILTER = None
@@ -737,14 +738,8 @@ class StickyNoteItem(QtWidgets.QGraphicsRectItem):
         self.update_text_layout()
 
     def apply_style(self):
-        fill = QtGui.QColor(self.base_color)
-        border = QtGui.QColor(255, 255, 255, 95)
-
-        self.setBrush(QtGui.QBrush(fill))
-
-        pen = QtGui.QPen(border)
-        pen.setWidth(1)
-        self.setPen(pen)
+        self.setBrush(QtGui.QBrush(QtCore.Qt.NoBrush))
+        self.setPen(QtGui.QPen(QtCore.Qt.NoPen))
 
     def apply_text_color(self):
         self.body_item.setDefaultTextColor(self.text_color)
@@ -814,6 +809,20 @@ class StickyNoteItem(QtWidgets.QGraphicsRectItem):
             HANDLE_SIZE,
             HANDLE_SIZE
         )
+
+    def note_path(self):
+        rect = self.rect()
+        cut = min(STICKY_CORNER_CUT, rect.width() * 0.25, rect.height() * 0.25)
+
+        path = QtGui.QPainterPath()
+        path.moveTo(rect.left(), rect.top() + cut)
+        path.lineTo(rect.left() + cut, rect.top())
+        path.lineTo(rect.right(), rect.top())
+        path.lineTo(rect.right(), rect.bottom())
+        path.lineTo(rect.left(), rect.bottom())
+        path.closeSubpath()
+
+        return path
 
     def to_data(self):
         rect = self.rect()
@@ -961,7 +970,20 @@ class StickyNoteItem(QtWidgets.QGraphicsRectItem):
         save_data()
 
     def paint(self, painter, option, widget=None):
-        super(StickyNoteItem, self).paint(painter, option, widget)
+        painter.setRenderHint(QtGui.QPainter.Antialiasing, True)
+
+        path = self.note_path()
+        painter.setPen(QtGui.QPen(QtGui.QColor(255, 255, 255, 95), 1))
+        painter.setBrush(QtGui.QBrush(self.base_color))
+        painter.drawPath(path)
+
+        rect = self.rect()
+        cut = min(STICKY_CORNER_CUT, rect.width() * 0.25, rect.height() * 0.25)
+        painter.setPen(QtGui.QPen(QtGui.QColor(255, 255, 255, 55), 1))
+        painter.drawLine(
+            QtCore.QPointF(rect.left(), rect.top() + cut),
+            QtCore.QPointF(rect.left() + cut, rect.top())
+        )
 
         move_handle = self.move_handle_rect()
         resize_handle = self.resize_handle_rect()
