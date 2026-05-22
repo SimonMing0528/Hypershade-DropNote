@@ -822,3 +822,18 @@ def uninstall_event_filter():
         print("%s: hotkey removed." % PLUGIN_NAME)
 
     EVENT_FILTER = None
+
+
+def cleanup_runtime_items():
+    uninstall_event_filter()
+
+    for item in list(BACKDROP_ITEMS):
+        try:
+            scene = item.scene()
+            if scene:
+                scene.removeItem(item)
+        except Exception:
+            pass
+
+    BACKDROP_ITEMS[:] = []
+    print("%s: runtime items cleaned." % PLUGIN_NAME)
