@@ -22,8 +22,9 @@ DEFAULT_COLOR = (255, 170, 35, 72)
 DEFAULT_FONT_SIZE = 18
 DEFAULT_FONT_FAMILY = ""
 DEFAULT_STICKY_BODY = "Add note..."
-DEFAULT_STICKY_COLOR = (72, 72, 72, 255)
+DEFAULT_STICKY_COLOR = (24, 24, 24, 255)
 DEFAULT_STICKY_TEXT_COLOR = (245, 245, 235, 255)
+DEFAULT_STICKY_FONT_SIZE = 8
 HANDLE_SIZE = 16
 MOVE_HANDLE_WIDTH = 76
 MOVE_HANDLE_HEIGHT = 10
@@ -715,7 +716,7 @@ class StickyNoteItem(QtWidgets.QGraphicsRectItem):
         self._sticky_note_item = True
         self.base_color = color or QtGui.QColor(*DEFAULT_STICKY_COLOR)
         self.text_color = QtGui.QColor(*DEFAULT_STICKY_TEXT_COLOR)
-        self.font_size = 16
+        self.font_size = DEFAULT_STICKY_FONT_SIZE
         self.font_family = DEFAULT_FONT_FAMILY
         self.resizing = False
         self.moving_from_handle = False
@@ -1147,7 +1148,7 @@ def restore_backdrops(scene):
                     body=sticky_body,
                     color=color_from_data(entry)
                 )
-                backdrop.font_size = int(entry.get("font_size", 16))
+                backdrop.font_size = int(entry.get("font_size", DEFAULT_STICKY_FONT_SIZE))
                 backdrop.font_family = entry.get("font_family", DEFAULT_FONT_FAMILY)
                 backdrop.text_color = text_color_from_data(entry)
                 backdrop.apply_text_color()
