@@ -274,6 +274,7 @@ class DropNoteItem(QtWidgets.QGraphicsRectItem):
         self._dropnote_item = True
         self.base_color = color or QtGui.QColor(*DEFAULT_COLOR)
         self.resizing = False
+        self.resize_corner = None
         self.moving_from_handle = False
         self.resize_start_pos = None
         self.resize_start_rect = None
@@ -312,7 +313,27 @@ class DropNoteItem(QtWidgets.QGraphicsRectItem):
         self.label.setPos(rect.left() + 18, rect.top() + 12)
 
     def handle_rect(self):
+        return self.resize_handle_rect("bottom_right")
+
+    def resize_handle_rect(self, corner):
         rect = self.rect()
+
+        if corner == "bottom_left":
+            return QtCore.QRectF(
+                rect.left(),
+                rect.bottom() - HANDLE_SIZE,
+                HANDLE_SIZE,
+                HANDLE_SIZE
+            )
+
+        if corner == "top_right":
+            return QtCore.QRectF(
+                rect.right() - HANDLE_SIZE,
+                rect.top(),
+                HANDLE_SIZE,
+                HANDLE_SIZE
+            )
+
         return QtCore.QRectF(
             rect.right() - HANDLE_SIZE,
             rect.bottom() - HANDLE_SIZE,
@@ -444,10 +465,56 @@ class DropNoteItem(QtWidgets.QGraphicsRectItem):
         elif action == delete_action:
             self.delete()
 
+    def draw_resize_handle(self, painter, corner):
+        handle = self.resize_handle_rect(corner)
+
+        painter.setPen(QtGui.QPen(QtGui.QColor(255, 255, 255, 210), 1))
+        painter.setBrush(QtGui.QBrush(QtGui.QColor(255, 255, 255, 90)))
+        painter.drawRect(handle)
+
+        painter.setPen(QtGui.QPen(QtGui.QColor(255, 255, 255, 210), 2))
+
+        if corner == "bottom_left":
+            painter.drawLine(
+                QtCore.QPointF(handle.right() - 6, handle.bottom() - 6),
+                QtCore.QPointF(handle.left() + 6, handle.top() + 6)
+            )
+            painter.drawLine(
+                QtCore.QPointF(handle.right() - 13, handle.bottom() - 6),
+                QtCore.QPointF(handle.left() + 6, handle.top() + 13)
+            )
+            return
+
+        if corner == "top_right":
+            painter.drawLine(
+                QtCore.QPointF(handle.left() + 6, handle.top() + 6),
+                QtCore.QPointF(handle.right() - 6, handle.bottom() - 6)
+            )
+            painter.drawLine(
+                QtCore.QPointF(handle.left() + 13, handle.top() + 6),
+                QtCore.QPointF(handle.right() - 6, handle.bottom() - 13)
+            )
+            return
+
+        painter.drawLine(
+            QtCore.QPointF(handle.left() + 6, handle.bottom() - 6),
+            QtCore.QPointF(handle.right() - 6, handle.top() + 6)
+        )
+        painter.drawLine(
+            QtCore.QPointF(handle.left() + 13, handle.bottom() - 6),
+            QtCore.QPointF(handle.right() - 6, handle.top() + 13)
+        )
+
+    def resize_corner_at(self, pos):
+        for corner in ("bottom_right", "bottom_left", "top_right"):
+            if self.resize_handle_rect(corner).contains(pos):
+                return corner
+
+        return None
+
     def paint(self, painter, option, widget=None):
         super(DropNoteItem, self).paint(painter, option, widget)
 
-        handle = self.handle_rect()
         move_handle = self.move_handle_rect()
 
         painter.setPen(QtGui.QPen(QtGui.QColor(255, 255, 255, 170), 1))
@@ -465,19 +532,9 @@ class DropNoteItem(QtWidgets.QGraphicsRectItem):
             QtCore.QPointF(move_handle.right() - 14, y + 3)
         )
 
-        painter.setPen(QtGui.QPen(QtGui.QColor(255, 255, 255, 210), 1))
-        painter.setBrush(QtGui.QBrush(QtGui.QColor(255, 255, 255, 90)))
-        painter.drawRect(handle)
-
-        painter.setPen(QtGui.QPen(QtGui.QColor(255, 255, 255, 210), 2))
-        painter.drawLine(
-            QtCore.QPointF(handle.left() + 6, handle.bottom() - 6),
-            QtCore.QPointF(handle.right() - 6, handle.top() + 6)
-        )
-        painter.drawLine(
-            QtCore.QPointF(handle.left() + 13, handle.bottom() - 6),
-            QtCore.QPointF(handle.right() - 6, handle.top() + 13)
-        )
+        self.draw_resize_handle(painter, "bottom_left")
+        self.draw_resize_handle(painter, "top_right")
+        self.draw_resize_handle(painter, "bottom_right")
 
     def mousePressEvent(self, event):
         if event.button() == QtCore.Qt.RightButton:
@@ -493,8 +550,10 @@ class DropNoteItem(QtWidgets.QGraphicsRectItem):
             event.accept()
             return
 
-        if event.button() == QtCore.Qt.LeftButton and self.handle_rect().contains(event.pos()):
+        resize_corner = self.resize_corner_at(event.pos())
+        if event.button() == QtCore.Qt.LeftButton and resize_corner:
             self.resizing = True
+            self.resize_corner = resize_corner
             self.resize_start_pos = event.scenePos()
             self.resize_start_rect = QtCore.QRectF(self.rect())
             event.accept()
@@ -512,8 +571,20 @@ class DropNoteItem(QtWidgets.QGraphicsRectItem):
         if self.resizing:
             delta = event.scenePos() - self.resize_start_pos
             rect = QtCore.QRectF(self.resize_start_rect)
-            rect.setWidth(max(MIN_WIDTH, rect.width() + delta.x()))
-            rect.setHeight(max(MIN_HEIGHT, rect.height() + delta.y()))
+
+            if self.resize_corner == "bottom_right":
+                rect.setWidth(max(MIN_WIDTH, rect.width() + delta.x()))
+                rect.setHeight(max(MIN_HEIGHT, rect.height() + delta.y()))
+
+            elif self.resize_corner == "bottom_left":
+                new_left = min(rect.left() + delta.x(), rect.right() - MIN_WIDTH)
+                rect.setLeft(new_left)
+                rect.setHeight(max(MIN_HEIGHT, rect.height() + delta.y()))
+
+            elif self.resize_corner == "top_right":
+                new_top = min(rect.top() + delta.y(), rect.bottom() - MIN_HEIGHT)
+                rect.setTop(new_top)
+                rect.setWidth(max(MIN_WIDTH, rect.width() + delta.x()))
 
             self.prepareGeometryChange()
             self.setRect(rect)
@@ -535,6 +606,7 @@ class DropNoteItem(QtWidgets.QGraphicsRectItem):
 
         if self.resizing:
             self.resizing = False
+            self.resize_corner = None
             self.resize_start_pos = None
             self.resize_start_rect = None
             save_data()
