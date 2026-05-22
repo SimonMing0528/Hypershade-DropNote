@@ -21,6 +21,9 @@ DEFAULT_TITLE = "Shader Group"
 DEFAULT_COLOR = (255, 170, 35, 72)
 DEFAULT_FONT_SIZE = 18
 DEFAULT_FONT_FAMILY = ""
+DEFAULT_STICKY_TITLE = "Sticky Notes"
+DEFAULT_STICKY_BODY = "Add note..."
+DEFAULT_STICKY_COLOR = (215, 215, 128, 210)
 HANDLE_SIZE = 16
 MOVE_HANDLE_WIDTH = 76
 MOVE_HANDLE_HEIGHT = 10
@@ -28,6 +31,8 @@ MIN_WIDTH = 160
 MIN_HEIGHT = 110
 DEFAULT_BACKDROP_WIDTH = 420
 DEFAULT_BACKDROP_HEIGHT = 260
+DEFAULT_STICKY_WIDTH = 260
+DEFAULT_STICKY_HEIGHT = 150
 
 BACKDROP_ITEMS = []
 EVENT_FILTER = None
@@ -244,6 +249,10 @@ def save_data():
         if item.scene() is None:
             continue
 
+        if hasattr(item, "to_data"):
+            data.append(item.to_data())
+            continue
+
         rect = item.rect()
         pos = item.pos()
         color = item.base_color
@@ -333,6 +342,26 @@ class DropNoteItem(QtWidgets.QGraphicsRectItem):
         if self.font_family:
             font.setFamily(self.font_family)
         self.label.setFont(font)
+
+    def to_data(self):
+        rect = self.rect()
+        pos = self.pos()
+        color = self.base_color
+
+        return {
+            "kind": "backdrop",
+            "title": self.label.toPlainText(),
+            "x": pos.x(),
+            "y": pos.y(),
+            "rect_x": rect.x(),
+            "rect_y": rect.y(),
+            "w": rect.width(),
+            "h": rect.height(),
+            "color": [color.red(), color.green(), color.blue(), color.alpha()],
+            "font_size": self.font_size,
+            "font_family": self.font_family,
+            "fill_transparent": self.fill_transparent,
+        }
 
     def handle_rect(self):
         return self.resize_handle_rect("bottom_right")
@@ -664,6 +693,333 @@ class DropNoteItem(QtWidgets.QGraphicsRectItem):
         event.accept()
 
 
+class StickyNoteItem(QtWidgets.QGraphicsRectItem):
+    def __init__(self, rect, title=DEFAULT_STICKY_TITLE, body=DEFAULT_STICKY_BODY, color=None):
+        super(StickyNoteItem, self).__init__(rect)
+
+        self._dropnote_item = True
+        self._sticky_note_item = True
+        self.base_color = color or QtGui.QColor(*DEFAULT_STICKY_COLOR)
+        self.font_size = 16
+        self.font_family = DEFAULT_FONT_FAMILY
+        self.resizing = False
+        self.moving_from_handle = False
+        self.resize_start_pos = None
+        self.resize_start_rect = None
+        self.move_start_pos = None
+        self.move_start_item_pos = None
+
+        self.setZValue(-99990)
+        self.setAcceptHoverEvents(True)
+        self.setAcceptedMouseButtons(QtCore.Qt.LeftButton | QtCore.Qt.RightButton)
+        self.setFlag(QtWidgets.QGraphicsItem.ItemIsSelectable, True)
+
+        self.title_item = QtWidgets.QGraphicsTextItem(title, self)
+        self.body_item = QtWidgets.QGraphicsTextItem(body, self)
+
+        self.title_item.setDefaultTextColor(QtGui.QColor(20, 20, 20))
+        self.body_item.setDefaultTextColor(QtGui.QColor(20, 20, 20))
+
+        self.apply_font()
+        self.apply_style()
+        self.update_text_layout()
+
+    def apply_style(self):
+        fill = QtGui.QColor(self.base_color)
+        border = QtGui.QColor(0, 0, 0, 220)
+
+        self.setBrush(QtGui.QBrush(fill))
+
+        pen = QtGui.QPen(border)
+        pen.setWidth(3)
+        self.setPen(pen)
+
+    def apply_font(self):
+        title_font = QtGui.QFont()
+        title_font.setBold(True)
+        title_font.setPointSize(self.font_size + 2)
+
+        body_font = QtGui.QFont()
+        body_font.setPointSize(self.font_size)
+
+        if self.font_family:
+            title_font.setFamily(self.font_family)
+            body_font.setFamily(self.font_family)
+
+        self.title_item.setFont(title_font)
+        self.body_item.setFont(body_font)
+
+    def update_text_layout(self):
+        rect = self.rect()
+        margin = 16
+
+        self.title_item.setTextWidth(max(40, rect.width() - margin * 2))
+        self.body_item.setTextWidth(max(40, rect.width() - margin * 2))
+
+        self.title_item.setPos(rect.left() + margin, rect.top() + 14)
+        self.body_item.setPos(rect.left() + margin, rect.top() + 56)
+
+    def fit_rect_to_text(self):
+        rect = QtCore.QRectF(self.rect())
+        margin = 16
+        title_top = 14
+        body_top = 56
+        bottom_margin = 18
+
+        self.update_text_layout()
+
+        title_rect = self.title_item.boundingRect()
+        body_rect = self.body_item.boundingRect()
+        needed_height = body_top + body_rect.height() + bottom_margin
+        needed_width = max(
+            rect.width(),
+            title_rect.width() + margin * 2,
+            body_rect.width() + margin * 2
+        )
+
+        changed = False
+
+        if needed_width > rect.width():
+            rect.setWidth(needed_width)
+            changed = True
+
+        if needed_height > rect.height():
+            rect.setHeight(needed_height)
+            changed = True
+
+        if changed:
+            self.prepareGeometryChange()
+            self.setRect(rect)
+            self.update_text_layout()
+
+    def move_handle_rect(self):
+        rect = self.rect()
+        width = min(MOVE_HANDLE_WIDTH, max(50, rect.width() * 0.36))
+        return QtCore.QRectF(
+            rect.center().x() - width * 0.5,
+            rect.top() + 4,
+            width,
+            MOVE_HANDLE_HEIGHT
+        )
+
+    def resize_handle_rect(self):
+        rect = self.rect()
+        return QtCore.QRectF(
+            rect.right() - HANDLE_SIZE,
+            rect.bottom() - HANDLE_SIZE,
+            HANDLE_SIZE,
+            HANDLE_SIZE
+        )
+
+    def to_data(self):
+        rect = self.rect()
+        pos = self.pos()
+        color = self.base_color
+
+        return {
+            "kind": "sticky",
+            "title": self.title_item.toPlainText(),
+            "body": self.body_item.toPlainText(),
+            "x": pos.x(),
+            "y": pos.y(),
+            "rect_x": rect.x(),
+            "rect_y": rect.y(),
+            "w": rect.width(),
+            "h": rect.height(),
+            "color": [color.red(), color.green(), color.blue(), color.alpha()],
+            "font_size": self.font_size,
+            "font_family": self.font_family,
+        }
+
+    def edit_properties(self):
+        dialog = QtWidgets.QDialog()
+        dialog.setWindowTitle("Edit Sticky Note")
+
+        title_edit = QtWidgets.QLineEdit(self.title_item.toPlainText())
+        body_edit = QtWidgets.QPlainTextEdit(self.body_item.toPlainText())
+        body_edit.setMinimumHeight(90)
+
+        font_combo = QtWidgets.QFontComboBox()
+        if self.font_family:
+            font_combo.setCurrentFont(QtGui.QFont(self.font_family))
+
+        font_size_spin = QtWidgets.QSpinBox()
+        font_size_spin.setRange(8, 48)
+        font_size_spin.setValue(self.font_size)
+
+        color_button = QtWidgets.QPushButton("Choose Color")
+        preview = QtWidgets.QFrame()
+        buttons = QtWidgets.QDialogButtonBox(
+            QtWidgets.QDialogButtonBox.Ok | QtWidgets.QDialogButtonBox.Cancel
+        )
+
+        chosen_color = QtGui.QColor(self.base_color)
+
+        def update_preview():
+            preview.setFixedSize(42, 22)
+            preview.setStyleSheet(
+                "background-color: rgba(%d, %d, %d, %d); border: 1px solid rgba(0, 0, 0, 120);"
+                % (
+                    chosen_color.red(),
+                    chosen_color.green(),
+                    chosen_color.blue(),
+                    chosen_color.alpha()
+                )
+            )
+
+        def choose_color():
+            new_color = QtWidgets.QColorDialog.getColor(chosen_color, dialog)
+            if new_color.isValid():
+                new_color.setAlpha(chosen_color.alpha())
+                chosen_color.setRgb(
+                    new_color.red(),
+                    new_color.green(),
+                    new_color.blue(),
+                    new_color.alpha()
+                )
+                update_preview()
+
+        color_row = QtWidgets.QHBoxLayout()
+        color_row.addWidget(preview)
+        color_row.addWidget(color_button)
+        color_row.addStretch()
+
+        form = QtWidgets.QFormLayout()
+        form.addRow("Title", title_edit)
+        form.addRow("Body", body_edit)
+        form.addRow("Font", font_combo)
+        form.addRow("Font Size", font_size_spin)
+        form.addRow("Color", color_row)
+
+        layout = QtWidgets.QVBoxLayout(dialog)
+        layout.addLayout(form)
+        layout.addWidget(buttons)
+
+        color_button.clicked.connect(choose_color)
+        buttons.accepted.connect(dialog.accept)
+        buttons.rejected.connect(dialog.reject)
+        update_preview()
+
+        if dialog.exec_() == QtWidgets.QDialog.Accepted:
+            title = title_edit.text().strip()
+            body = body_edit.toPlainText()
+
+            self.title_item.setPlainText(title or DEFAULT_STICKY_TITLE)
+            self.body_item.setPlainText(body)
+            self.font_family = font_combo.currentFont().family()
+            self.font_size = font_size_spin.value()
+            self.base_color = chosen_color
+            self.apply_font()
+            self.apply_style()
+            self.update_text_layout()
+            self.fit_rect_to_text()
+            save_data()
+
+    def delete(self):
+        scene = self.scene()
+        if scene:
+            scene.removeItem(self)
+
+        if self in BACKDROP_ITEMS:
+            BACKDROP_ITEMS.remove(self)
+
+        save_data()
+
+    def paint(self, painter, option, widget=None):
+        super(StickyNoteItem, self).paint(painter, option, widget)
+
+        move_handle = self.move_handle_rect()
+        resize_handle = self.resize_handle_rect()
+
+        painter.setPen(QtGui.QPen(QtGui.QColor(0, 0, 0, 80), 1))
+        painter.setBrush(QtGui.QBrush(QtGui.QColor(255, 255, 255, 22)))
+        painter.drawRoundedRect(move_handle, 2, 2)
+
+        painter.setPen(QtGui.QPen(QtGui.QColor(0, 0, 0, 95), 1))
+        y = move_handle.center().y()
+        painter.drawLine(
+            QtCore.QPointF(move_handle.left() + 9, y - 2),
+            QtCore.QPointF(move_handle.right() - 9, y - 2)
+        )
+        painter.drawLine(
+            QtCore.QPointF(move_handle.left() + 9, y + 2),
+            QtCore.QPointF(move_handle.right() - 9, y + 2)
+        )
+
+        painter.setPen(QtGui.QPen(QtGui.QColor(0, 0, 0, 115), 1))
+        painter.setBrush(QtGui.QBrush(QtGui.QColor(255, 255, 255, 28)))
+        painter.drawRect(resize_handle)
+
+        painter.drawLine(
+            QtCore.QPointF(resize_handle.left() + 4, resize_handle.bottom() - 4),
+            QtCore.QPointF(resize_handle.right() - 4, resize_handle.top() + 4)
+        )
+
+    def mousePressEvent(self, event):
+        if event.button() == QtCore.Qt.LeftButton and self.move_handle_rect().contains(event.pos()):
+            self.moving_from_handle = True
+            self.move_start_pos = event.scenePos()
+            self.move_start_item_pos = QtCore.QPointF(self.pos())
+            self.setSelected(True)
+            event.accept()
+            return
+
+        if event.button() == QtCore.Qt.LeftButton and self.resize_handle_rect().contains(event.pos()):
+            self.resizing = True
+            self.resize_start_pos = event.scenePos()
+            self.resize_start_rect = QtCore.QRectF(self.rect())
+            event.accept()
+            return
+
+        super(StickyNoteItem, self).mousePressEvent(event)
+
+    def mouseMoveEvent(self, event):
+        if self.moving_from_handle:
+            delta = event.scenePos() - self.move_start_pos
+            self.setPos(self.move_start_item_pos + delta)
+            event.accept()
+            return
+
+        if self.resizing:
+            delta = event.scenePos() - self.resize_start_pos
+            rect = QtCore.QRectF(self.resize_start_rect)
+            rect.setWidth(max(MIN_WIDTH, rect.width() + delta.x()))
+            rect.setHeight(max(MIN_HEIGHT, rect.height() + delta.y()))
+
+            self.prepareGeometryChange()
+            self.setRect(rect)
+            self.update_text_layout()
+            self.update()
+            event.accept()
+            return
+
+        super(StickyNoteItem, self).mouseMoveEvent(event)
+
+    def mouseReleaseEvent(self, event):
+        if self.moving_from_handle:
+            self.moving_from_handle = False
+            self.move_start_pos = None
+            self.move_start_item_pos = None
+            save_data()
+            event.accept()
+            return
+
+        if self.resizing:
+            self.resizing = False
+            self.resize_start_pos = None
+            self.resize_start_rect = None
+            save_data()
+            event.accept()
+            return
+
+        super(StickyNoteItem, self).mouseReleaseEvent(event)
+        save_data()
+
+    def mouseDoubleClickEvent(self, event):
+        self.edit_properties()
+        event.accept()
+
+
 def create_backdrop_from_selection(scene):
     selected = selected_node_items(scene)
     if not selected:
@@ -719,6 +1075,28 @@ def create_backdrop_at_view_center(scene, view):
     return backdrop
 
 
+def create_sticky_at_view_center(scene, view):
+    try:
+        center = view.mapToScene(view.viewport().rect().center())
+    except Exception:
+        center = QtCore.QPointF(0, 0)
+
+    rect = QtCore.QRectF(
+        center.x() - DEFAULT_STICKY_WIDTH * 0.5,
+        center.y() - DEFAULT_STICKY_HEIGHT * 0.5,
+        DEFAULT_STICKY_WIDTH,
+        DEFAULT_STICKY_HEIGHT
+    )
+
+    sticky = StickyNoteItem(rect)
+    scene.addItem(sticky)
+    BACKDROP_ITEMS.append(sticky)
+    sticky.setSelected(True)
+    sticky.edit_properties()
+    save_data()
+    return sticky
+
+
 def restore_backdrops(scene):
     restored = 0
 
@@ -740,16 +1118,31 @@ def restore_backdrops(scene):
                 float(entry.get("h", 250))
             )
 
-            backdrop = DropNoteItem(
-                rect,
-                title=entry.get("title", DEFAULT_TITLE),
-                color=color_from_data(entry)
-            )
-            backdrop.font_size = int(entry.get("font_size", DEFAULT_FONT_SIZE))
-            backdrop.font_family = entry.get("font_family", DEFAULT_FONT_FAMILY)
-            backdrop.fill_transparent = bool(entry.get("fill_transparent", False))
-            backdrop.apply_font_size()
-            backdrop.apply_style()
+            if entry.get("kind", "backdrop") == "sticky":
+                backdrop = StickyNoteItem(
+                    rect,
+                    title=entry.get("title", DEFAULT_STICKY_TITLE),
+                    body=entry.get("body", DEFAULT_STICKY_BODY),
+                    color=color_from_data(entry)
+                )
+                backdrop.font_size = int(entry.get("font_size", 16))
+                backdrop.font_family = entry.get("font_family", DEFAULT_FONT_FAMILY)
+                backdrop.apply_font()
+                backdrop.apply_style()
+                backdrop.update_text_layout()
+                backdrop.fit_rect_to_text()
+            else:
+                backdrop = DropNoteItem(
+                    rect,
+                    title=entry.get("title", DEFAULT_TITLE),
+                    color=color_from_data(entry)
+                )
+                backdrop.font_size = int(entry.get("font_size", DEFAULT_FONT_SIZE))
+                backdrop.font_family = entry.get("font_family", DEFAULT_FONT_FAMILY)
+                backdrop.fill_transparent = bool(entry.get("fill_transparent", False))
+                backdrop.apply_font_size()
+                backdrop.apply_style()
+
             backdrop.setPos(
                 QtCore.QPointF(
                     float(entry.get("x", 0)),
@@ -838,6 +1231,32 @@ def create_dropnote():
         print("%s: created at view center." % PLUGIN_NAME)
 
 
+def create_sticky_note():
+    view = find_best_graphics_view()
+
+    if view is None:
+        QtWidgets.QMessageBox.warning(
+            None,
+            PLUGIN_NAME,
+            "Could not find a Hypershade / Node Editor graph.\n\nOpen Hypershade or Node Editor, click the graph area, then run DropNote again."
+        )
+        return
+
+    scene = get_scene(view)
+
+    if scene is None:
+        QtWidgets.QMessageBox.warning(
+            None,
+            PLUGIN_NAME,
+            "Found the graph view, but could not access the scene.\n\nClick the graph area, then run DropNote again."
+        )
+        return
+
+    restore_backdrops(scene)
+    create_sticky_at_view_center(scene, view)
+    print("%s: created Sticky Note." % PLUGIN_NAME)
+
+
 def run():
     create_dropnote()
 
@@ -862,6 +1281,11 @@ class DropNoteEventFilter(QtCore.QObject):
 
         if key == QtCore.Qt.Key_N and modifiers == QtCore.Qt.ShiftModifier:
             create_dropnote()
+            event.accept()
+            return True
+
+        if key == QtCore.Qt.Key_S and modifiers == QtCore.Qt.ShiftModifier:
+            create_sticky_note()
             event.accept()
             return True
 
