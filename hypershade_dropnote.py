@@ -20,9 +20,9 @@ STORAGE_ATTR = "data"
 DEFAULT_TITLE = "Shader Group"
 DEFAULT_COLOR = (255, 170, 35, 72)
 DEFAULT_FONT_SIZE = 18
-HANDLE_SIZE = 22
-MOVE_HANDLE_WIDTH = 150
-MOVE_HANDLE_HEIGHT = 22
+HANDLE_SIZE = 16
+MOVE_HANDLE_WIDTH = 76
+MOVE_HANDLE_HEIGHT = 10
 MIN_WIDTH = 160
 MIN_HEIGHT = 110
 DEFAULT_BACKDROP_WIDTH = 420
@@ -492,42 +492,44 @@ class DropNoteItem(QtWidgets.QGraphicsRectItem):
 
     def draw_resize_handle(self, painter, corner):
         handle = self.resize_handle_rect(corner)
+        inset = 4
+        second_inset = 8
 
-        painter.setPen(QtGui.QPen(QtGui.QColor(255, 255, 255, 210), 1))
-        painter.setBrush(QtGui.QBrush(QtGui.QColor(255, 255, 255, 90)))
+        painter.setPen(QtGui.QPen(QtGui.QColor(255, 255, 255, 115), 1))
+        painter.setBrush(QtGui.QBrush(QtGui.QColor(255, 255, 255, 32)))
         painter.drawRect(handle)
 
-        painter.setPen(QtGui.QPen(QtGui.QColor(255, 255, 255, 210), 2))
+        painter.setPen(QtGui.QPen(QtGui.QColor(255, 255, 255, 120), 1))
 
         if corner == "bottom_left":
             painter.drawLine(
-                QtCore.QPointF(handle.right() - 6, handle.bottom() - 6),
-                QtCore.QPointF(handle.left() + 6, handle.top() + 6)
+                QtCore.QPointF(handle.right() - inset, handle.bottom() - inset),
+                QtCore.QPointF(handle.left() + inset, handle.top() + inset)
             )
             painter.drawLine(
-                QtCore.QPointF(handle.right() - 13, handle.bottom() - 6),
-                QtCore.QPointF(handle.left() + 6, handle.top() + 13)
+                QtCore.QPointF(handle.right() - second_inset, handle.bottom() - inset),
+                QtCore.QPointF(handle.left() + inset, handle.top() + second_inset)
             )
             return
 
         if corner == "top_right":
             painter.drawLine(
-                QtCore.QPointF(handle.left() + 6, handle.top() + 6),
-                QtCore.QPointF(handle.right() - 6, handle.bottom() - 6)
+                QtCore.QPointF(handle.left() + inset, handle.top() + inset),
+                QtCore.QPointF(handle.right() - inset, handle.bottom() - inset)
             )
             painter.drawLine(
-                QtCore.QPointF(handle.left() + 13, handle.top() + 6),
-                QtCore.QPointF(handle.right() - 6, handle.bottom() - 13)
+                QtCore.QPointF(handle.left() + second_inset, handle.top() + inset),
+                QtCore.QPointF(handle.right() - inset, handle.bottom() - second_inset)
             )
             return
 
         painter.drawLine(
-            QtCore.QPointF(handle.left() + 6, handle.bottom() - 6),
-            QtCore.QPointF(handle.right() - 6, handle.top() + 6)
+            QtCore.QPointF(handle.left() + inset, handle.bottom() - inset),
+            QtCore.QPointF(handle.right() - inset, handle.top() + inset)
         )
         painter.drawLine(
-            QtCore.QPointF(handle.left() + 13, handle.bottom() - 6),
-            QtCore.QPointF(handle.right() - 6, handle.top() + 13)
+            QtCore.QPointF(handle.left() + second_inset, handle.bottom() - inset),
+            QtCore.QPointF(handle.right() - inset, handle.top() + second_inset)
         )
 
     def resize_corner_at(self, pos):
@@ -542,19 +544,19 @@ class DropNoteItem(QtWidgets.QGraphicsRectItem):
 
         move_handle = self.move_handle_rect()
 
-        painter.setPen(QtGui.QPen(QtGui.QColor(255, 255, 255, 170), 1))
-        painter.setBrush(QtGui.QBrush(QtGui.QColor(255, 255, 255, 42)))
-        painter.drawRoundedRect(move_handle, 3, 3)
+        painter.setPen(QtGui.QPen(QtGui.QColor(255, 255, 255, 95), 1))
+        painter.setBrush(QtGui.QBrush(QtGui.QColor(255, 255, 255, 20)))
+        painter.drawRoundedRect(move_handle, 2, 2)
 
-        painter.setPen(QtGui.QPen(QtGui.QColor(255, 255, 255, 135), 1))
+        painter.setPen(QtGui.QPen(QtGui.QColor(255, 255, 255, 85), 1))
         y = move_handle.center().y()
         painter.drawLine(
-            QtCore.QPointF(move_handle.left() + 14, y - 3),
-            QtCore.QPointF(move_handle.right() - 14, y - 3)
+            QtCore.QPointF(move_handle.left() + 9, y - 2),
+            QtCore.QPointF(move_handle.right() - 9, y - 2)
         )
         painter.drawLine(
-            QtCore.QPointF(move_handle.left() + 14, y + 3),
-            QtCore.QPointF(move_handle.right() - 14, y + 3)
+            QtCore.QPointF(move_handle.left() + 9, y + 2),
+            QtCore.QPointF(move_handle.right() - 9, y + 2)
         )
 
         self.draw_resize_handle(painter, "bottom_left")
