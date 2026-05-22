@@ -24,6 +24,7 @@ MIN_WIDTH = 160
 MIN_HEIGHT = 110
 
 BACKDROP_ITEMS = []
+EVENT_FILTER = None
 
 
 def qt_is_alive(obj):
@@ -150,6 +151,50 @@ def find_best_graphics_view():
     return scored[0][1]
 
 
+def graphics_view_from_widget(widget):
+    while widget is not None:
+        try:
+            if isinstance(widget, QtWidgets.QGraphicsView):
+                return widget
+            widget = widget.parent()
+        except Exception:
+            return None
+
+    return None
+
+
+def focused_graphics_view():
+    app = QtWidgets.QApplication.instance()
+    if not app:
+        return None
+
+    view = graphics_view_from_widget(app.focusWidget())
+    if view and get_scene(view):
+        return view
+
+    return None
+
+
+def is_dropnote_view(view):
+    if not view or not get_scene(view):
+        return False
+
+    if view_has_selected_nodes(view):
+        return True
+
+    try:
+        name = view.objectName().lower()
+        if "node" in name or "hyper" in name:
+            return True
+    except Exception:
+        pass
+
+    try:
+        return view.isVisible() and view.underMouse()
+    except Exception:
+        return False
+
+
 def ensure_storage_node():
     if not cmds.objExists(STORAGE_NODE):
         node = cmds.createNode("network", name=STORAGE_NODE)
@@ -271,6 +316,70 @@ class DropNoteItem(QtWidgets.QGraphicsRectItem):
             HANDLE_SIZE
         )
 
+    def edit_properties(self):
+        dialog = QtWidgets.QDialog()
+        dialog.setWindowTitle("Edit DropNote")
+
+        name_edit = QtWidgets.QLineEdit(self.label.toPlainText())
+        color_button = QtWidgets.QPushButton("Choose Color")
+        preview = QtWidgets.QFrame()
+        buttons = QtWidgets.QDialogButtonBox(
+            QtWidgets.QDialogButtonBox.Ok | QtWidgets.QDialogButtonBox.Cancel
+        )
+
+        chosen_color = QtGui.QColor(self.base_color)
+
+        def update_preview():
+            preview.setFixedSize(42, 22)
+            preview.setStyleSheet(
+                "background-color: rgba(%d, %d, %d, %d); border: 1px solid rgba(255, 255, 255, 160);"
+                % (
+                    chosen_color.red(),
+                    chosen_color.green(),
+                    chosen_color.blue(),
+                    chosen_color.alpha()
+                )
+            )
+
+        def choose_color():
+            new_color = QtWidgets.QColorDialog.getColor(chosen_color, dialog)
+            if new_color.isValid():
+                new_color.setAlpha(chosen_color.alpha())
+                chosen_color.setRgb(
+                    new_color.red(),
+                    new_color.green(),
+                    new_color.blue(),
+                    new_color.alpha()
+                )
+                update_preview()
+
+        form = QtWidgets.QFormLayout()
+        color_row = QtWidgets.QHBoxLayout()
+        color_row.addWidget(preview)
+        color_row.addWidget(color_button)
+        color_row.addStretch()
+
+        form.addRow("Name", name_edit)
+        form.addRow("Color", color_row)
+
+        layout = QtWidgets.QVBoxLayout(dialog)
+        layout.addLayout(form)
+        layout.addWidget(buttons)
+
+        color_button.clicked.connect(choose_color)
+        buttons.accepted.connect(dialog.accept)
+        buttons.rejected.connect(dialog.reject)
+        update_preview()
+
+        if dialog.exec_() == QtWidgets.QDialog.Accepted:
+            text = name_edit.text().strip()
+            if text:
+                self.label.setPlainText(text)
+
+            self.base_color = chosen_color
+            self.apply_style()
+            save_data()
+
     def rename(self):
         text, ok = QtWidgets.QInputDialog.getText(
             None,
@@ -384,7 +493,7 @@ class DropNoteItem(QtWidgets.QGraphicsRectItem):
         save_data()
 
     def mouseDoubleClickEvent(self, event):
-        self.rename()
+        self.edit_properties()
         event.accept()
 
     def contextMenuEvent(self, event):
@@ -469,6 +578,22 @@ def restore_backdrops(scene):
         print("%s: restored %d DropNote(s)." % (PLUGIN_NAME, restored))
 
 
+def delete_selected_dropnotes(scene):
+    deleted = 0
+
+    try:
+        selected = scene.selectedItems()
+    except Exception:
+        selected = []
+
+    for item in list(selected):
+        if getattr(item, "_dropnote_item", False):
+            item.delete()
+            deleted += 1
+
+    return deleted
+
+
 def run():
     view = find_best_graphics_view()
 
@@ -496,3 +621,53 @@ def run():
         print("%s: created from selection." % PLUGIN_NAME)
     else:
         print("%s: restored saved DropNotes. Select graph nodes and run again to create a new one." % PLUGIN_NAME)
+
+
+class DropNoteEventFilter(QtCore.QObject):
+    def eventFilter(self, obj, event):
+        if event.type() != QtCore.QEvent.KeyPress:
+            return False
+
+        view = focused_graphics_view()
+        if not is_dropnote_view(view):
+            return False
+
+        key = event.key()
+        modifiers = event.modifiers()
+        scene = get_scene(view)
+
+        if key == QtCore.Qt.Key_B and modifiers == QtCore.Qt.ShiftModifier:
+            run()
+            event.accept()
+            return True
+
+        if key in (QtCore.Qt.Key_Delete, QtCore.Qt.Key_Backspace):
+            if scene and delete_selected_dropnotes(scene):
+                event.accept()
+                return True
+
+        return False
+
+
+def install_event_filter():
+    global EVENT_FILTER
+
+    app = QtWidgets.QApplication.instance()
+    if not app:
+        return
+
+    if EVENT_FILTER is None or not qt_is_alive(EVENT_FILTER):
+        EVENT_FILTER = DropNoteEventFilter()
+        app.installEventFilter(EVENT_FILTER)
+        print("%s: Shift+B hotkey installed." % PLUGIN_NAME)
+
+
+def uninstall_event_filter():
+    global EVENT_FILTER
+
+    app = QtWidgets.QApplication.instance()
+    if app and EVENT_FILTER is not None and qt_is_alive(EVENT_FILTER):
+        app.removeEventFilter(EVENT_FILTER)
+        print("%s: hotkey removed." % PLUGIN_NAME)
+
+    EVENT_FILTER = None

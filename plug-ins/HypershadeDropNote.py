@@ -36,6 +36,8 @@ def create_command():
 def initializePlugin(plugin):
     ensure_plugin_root_on_path()
 
+    import hypershade_dropnote
+
     plugin_fn = om.MFnPlugin(
         plugin,
         "Hypershade DropNote",
@@ -49,10 +51,19 @@ def initializePlugin(plugin):
         om.MGlobal.displayError("Failed to register %s command." % COMMAND_NAME)
         raise
 
+    hypershade_dropnote.install_event_filter()
     om.MGlobal.displayInfo("%s loaded. Command: %s" % (PLUGIN_NAME, COMMAND_NAME))
 
 
 def uninitializePlugin(plugin):
+    ensure_plugin_root_on_path()
+
+    try:
+        import hypershade_dropnote
+        hypershade_dropnote.uninstall_event_filter()
+    except Exception:
+        pass
+
     plugin_fn = om.MFnPlugin(plugin)
 
     try:
