@@ -40,6 +40,7 @@ BACKDROP_ITEMS = []
 EVENT_FILTER = None
 HOTKEYS_DOWN = set()
 APP_FILTER_ATTR = "_hypershade_dropnote_event_filter"
+ITEMS_VISIBLE = False
 
 
 def qt_is_alive(obj):
@@ -1032,6 +1033,8 @@ class StickyNoteItem(QtWidgets.QGraphicsRectItem):
 
 
 def create_backdrop_from_selection(scene):
+    global ITEMS_VISIBLE
+
     selected = selected_node_items(scene)
     if not selected:
         return None
@@ -1061,11 +1064,14 @@ def create_backdrop_from_selection(scene):
             pass
 
     backdrop.setSelected(True)
+    ITEMS_VISIBLE = True
     save_data()
     return backdrop
 
 
 def create_backdrop_at_view_center(scene, view):
+    global ITEMS_VISIBLE
+
     try:
         center = view.mapToScene(view.viewport().rect().center())
     except Exception:
@@ -1082,11 +1088,14 @@ def create_backdrop_at_view_center(scene, view):
     scene.addItem(backdrop)
     BACKDROP_ITEMS.append(backdrop)
     backdrop.setSelected(True)
+    ITEMS_VISIBLE = True
     save_data()
     return backdrop
 
 
 def create_sticky_at_view_center(scene, view):
+    global ITEMS_VISIBLE
+
     try:
         center = view.mapToScene(view.viewport().rect().center())
     except Exception:
@@ -1112,11 +1121,14 @@ def create_sticky_at_view_center(scene, view):
     scene.addItem(sticky)
     BACKDROP_ITEMS.append(sticky)
     sticky.setSelected(True)
+    ITEMS_VISIBLE = True
     save_data()
     return sticky
 
 
 def restore_backdrops(scene):
+    global ITEMS_VISIBLE
+
     restored = 0
 
     for old in list(BACKDROP_ITEMS):
@@ -1184,6 +1196,24 @@ def restore_backdrops(scene):
     if restored:
         print("%s: restored %d DropNote(s)." % (PLUGIN_NAME, restored))
 
+    ITEMS_VISIBLE = True
+
+
+def hide_runtime_items():
+    global ITEMS_VISIBLE
+
+    for item in list(BACKDROP_ITEMS):
+        try:
+            scene = item.scene()
+            if scene:
+                scene.removeItem(item)
+        except Exception:
+            pass
+
+    BACKDROP_ITEMS[:] = []
+    ITEMS_VISIBLE = False
+    print("%s: hidden runtime items." % PLUGIN_NAME)
+
 
 def scene_has_runtime_items(scene):
     for item in BACKDROP_ITEMS:
@@ -1234,7 +1264,14 @@ def refresh_dropnotes():
         return
 
     restore_backdrops(scene)
-    print("%s: refreshed saved DropNotes." % PLUGIN_NAME)
+    print("%s: shown saved DropNotes." % PLUGIN_NAME)
+
+
+def toggle_dropnotes_visibility():
+    if ITEMS_VISIBLE and BACKDROP_ITEMS:
+        hide_runtime_items()
+    else:
+        refresh_dropnotes()
 
 
 def create_dropnote():
@@ -1328,7 +1365,7 @@ class DropNoteEventFilter(QtCore.QObject):
             HOTKEYS_DOWN.add(key)
 
         if key == QtCore.Qt.Key_B and modifiers == QtCore.Qt.ShiftModifier:
-            refresh_dropnotes()
+            toggle_dropnotes_visibility()
             event.accept()
             return True
 
@@ -1390,6 +1427,8 @@ def uninstall_event_filter():
 
 
 def cleanup_runtime_items():
+    global ITEMS_VISIBLE
+
     uninstall_event_filter()
 
     for item in list(BACKDROP_ITEMS):
@@ -1401,4 +1440,5 @@ def cleanup_runtime_items():
             pass
 
     BACKDROP_ITEMS[:] = []
+    ITEMS_VISIBLE = False
     print("%s: runtime items cleaned." % PLUGIN_NAME)
