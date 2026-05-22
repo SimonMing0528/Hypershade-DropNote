@@ -21,9 +21,9 @@ DEFAULT_TITLE = "Shader Group"
 DEFAULT_COLOR = (255, 170, 35, 72)
 DEFAULT_FONT_SIZE = 18
 DEFAULT_FONT_FAMILY = ""
-DEFAULT_STICKY_TITLE = "Sticky Notes"
 DEFAULT_STICKY_BODY = "Add note..."
-DEFAULT_STICKY_COLOR = (215, 215, 128, 210)
+DEFAULT_STICKY_COLOR = (72, 72, 72, 255)
+DEFAULT_STICKY_TEXT_COLOR = (245, 245, 235, 255)
 HANDLE_SIZE = 16
 MOVE_HANDLE_WIDTH = 76
 MOVE_HANDLE_HEIGHT = 10
@@ -36,6 +36,8 @@ DEFAULT_STICKY_HEIGHT = 150
 
 BACKDROP_ITEMS = []
 EVENT_FILTER = None
+HOTKEYS_DOWN = set()
+APP_FILTER_ATTR = "_hypershade_dropnote_event_filter"
 
 
 def qt_is_alive(obj):
@@ -250,7 +252,10 @@ def save_data():
             continue
 
         if hasattr(item, "to_data"):
-            data.append(item.to_data())
+            try:
+                data.append(item.to_data())
+            except Exception as error:
+                print("%s: failed to save one item: %s" % (PLUGIN_NAME, error))
             continue
 
         rect = item.rect()
@@ -281,6 +286,14 @@ def color_from_data(entry):
         return QtGui.QColor(values[0], values[1], values[2], values[3])
     except Exception:
         return QtGui.QColor(*DEFAULT_COLOR)
+
+
+def text_color_from_data(entry):
+    values = entry.get("text_color", DEFAULT_STICKY_TEXT_COLOR)
+    try:
+        return QtGui.QColor(values[0], values[1], values[2], values[3])
+    except Exception:
+        return QtGui.QColor(*DEFAULT_STICKY_TEXT_COLOR)
 
 
 class DropNoteItem(QtWidgets.QGraphicsRectItem):
@@ -694,12 +707,13 @@ class DropNoteItem(QtWidgets.QGraphicsRectItem):
 
 
 class StickyNoteItem(QtWidgets.QGraphicsRectItem):
-    def __init__(self, rect, title=DEFAULT_STICKY_TITLE, body=DEFAULT_STICKY_BODY, color=None):
+    def __init__(self, rect, body=DEFAULT_STICKY_BODY, color=None):
         super(StickyNoteItem, self).__init__(rect)
 
         self._dropnote_item = True
         self._sticky_note_item = True
         self.base_color = color or QtGui.QColor(*DEFAULT_STICKY_COLOR)
+        self.text_color = QtGui.QColor(*DEFAULT_STICKY_TEXT_COLOR)
         self.font_size = 16
         self.font_family = DEFAULT_FONT_FAMILY
         self.resizing = False
@@ -714,11 +728,9 @@ class StickyNoteItem(QtWidgets.QGraphicsRectItem):
         self.setAcceptedMouseButtons(QtCore.Qt.LeftButton | QtCore.Qt.RightButton)
         self.setFlag(QtWidgets.QGraphicsItem.ItemIsSelectable, True)
 
-        self.title_item = QtWidgets.QGraphicsTextItem(title, self)
         self.body_item = QtWidgets.QGraphicsTextItem(body, self)
 
-        self.title_item.setDefaultTextColor(QtGui.QColor(20, 20, 20))
-        self.body_item.setDefaultTextColor(QtGui.QColor(20, 20, 20))
+        self.apply_text_color()
 
         self.apply_font()
         self.apply_style()
@@ -726,54 +738,46 @@ class StickyNoteItem(QtWidgets.QGraphicsRectItem):
 
     def apply_style(self):
         fill = QtGui.QColor(self.base_color)
-        border = QtGui.QColor(0, 0, 0, 220)
+        border = QtGui.QColor(255, 255, 255, 95)
 
         self.setBrush(QtGui.QBrush(fill))
 
         pen = QtGui.QPen(border)
-        pen.setWidth(3)
+        pen.setWidth(1)
         self.setPen(pen)
 
-    def apply_font(self):
-        title_font = QtGui.QFont()
-        title_font.setBold(True)
-        title_font.setPointSize(self.font_size + 2)
+    def apply_text_color(self):
+        self.body_item.setDefaultTextColor(self.text_color)
 
+    def apply_font(self):
         body_font = QtGui.QFont()
         body_font.setPointSize(self.font_size)
 
         if self.font_family:
-            title_font.setFamily(self.font_family)
             body_font.setFamily(self.font_family)
 
-        self.title_item.setFont(title_font)
         self.body_item.setFont(body_font)
 
     def update_text_layout(self):
         rect = self.rect()
         margin = 16
 
-        self.title_item.setTextWidth(max(40, rect.width() - margin * 2))
         self.body_item.setTextWidth(max(40, rect.width() - margin * 2))
 
-        self.title_item.setPos(rect.left() + margin, rect.top() + 14)
-        self.body_item.setPos(rect.left() + margin, rect.top() + 56)
+        self.body_item.setPos(rect.left() + margin, rect.top() + 22)
 
     def fit_rect_to_text(self):
         rect = QtCore.QRectF(self.rect())
         margin = 16
-        title_top = 14
-        body_top = 56
+        body_top = 22
         bottom_margin = 18
 
         self.update_text_layout()
 
-        title_rect = self.title_item.boundingRect()
         body_rect = self.body_item.boundingRect()
         needed_height = body_top + body_rect.height() + bottom_margin
         needed_width = max(
             rect.width(),
-            title_rect.width() + margin * 2,
             body_rect.width() + margin * 2
         )
 
@@ -815,10 +819,10 @@ class StickyNoteItem(QtWidgets.QGraphicsRectItem):
         rect = self.rect()
         pos = self.pos()
         color = self.base_color
+        text_color = self.text_color
 
         return {
             "kind": "sticky",
-            "title": self.title_item.toPlainText(),
             "body": self.body_item.toPlainText(),
             "x": pos.x(),
             "y": pos.y(),
@@ -827,6 +831,7 @@ class StickyNoteItem(QtWidgets.QGraphicsRectItem):
             "w": rect.width(),
             "h": rect.height(),
             "color": [color.red(), color.green(), color.blue(), color.alpha()],
+            "text_color": [text_color.red(), text_color.green(), text_color.blue(), text_color.alpha()],
             "font_size": self.font_size,
             "font_family": self.font_family,
         }
@@ -835,7 +840,6 @@ class StickyNoteItem(QtWidgets.QGraphicsRectItem):
         dialog = QtWidgets.QDialog()
         dialog.setWindowTitle("Edit Sticky Note")
 
-        title_edit = QtWidgets.QLineEdit(self.title_item.toPlainText())
         body_edit = QtWidgets.QPlainTextEdit(self.body_item.toPlainText())
         body_edit.setMinimumHeight(90)
 
@@ -848,22 +852,35 @@ class StickyNoteItem(QtWidgets.QGraphicsRectItem):
         font_size_spin.setValue(self.font_size)
 
         color_button = QtWidgets.QPushButton("Choose Color")
+        text_color_button = QtWidgets.QPushButton("Choose Text Color")
         preview = QtWidgets.QFrame()
+        text_preview = QtWidgets.QFrame()
         buttons = QtWidgets.QDialogButtonBox(
             QtWidgets.QDialogButtonBox.Ok | QtWidgets.QDialogButtonBox.Cancel
         )
 
         chosen_color = QtGui.QColor(self.base_color)
+        chosen_text_color = QtGui.QColor(self.text_color)
 
         def update_preview():
             preview.setFixedSize(42, 22)
             preview.setStyleSheet(
-                "background-color: rgba(%d, %d, %d, %d); border: 1px solid rgba(0, 0, 0, 120);"
+                "background-color: rgba(%d, %d, %d, %d); border: 1px solid rgba(255, 255, 255, 120);"
                 % (
                     chosen_color.red(),
                     chosen_color.green(),
                     chosen_color.blue(),
                     chosen_color.alpha()
+                )
+            )
+            text_preview.setFixedSize(42, 22)
+            text_preview.setStyleSheet(
+                "background-color: rgba(%d, %d, %d, %d); border: 1px solid rgba(255, 255, 255, 120);"
+                % (
+                    chosen_text_color.red(),
+                    chosen_text_color.green(),
+                    chosen_text_color.blue(),
+                    chosen_text_color.alpha()
                 )
             )
 
@@ -879,36 +896,54 @@ class StickyNoteItem(QtWidgets.QGraphicsRectItem):
                 )
                 update_preview()
 
+        def choose_text_color():
+            new_color = QtWidgets.QColorDialog.getColor(chosen_text_color, dialog)
+            if new_color.isValid():
+                new_color.setAlpha(chosen_text_color.alpha())
+                chosen_text_color.setRgb(
+                    new_color.red(),
+                    new_color.green(),
+                    new_color.blue(),
+                    new_color.alpha()
+                )
+                update_preview()
+
         color_row = QtWidgets.QHBoxLayout()
         color_row.addWidget(preview)
         color_row.addWidget(color_button)
         color_row.addStretch()
 
+        text_color_row = QtWidgets.QHBoxLayout()
+        text_color_row.addWidget(text_preview)
+        text_color_row.addWidget(text_color_button)
+        text_color_row.addStretch()
+
         form = QtWidgets.QFormLayout()
-        form.addRow("Title", title_edit)
-        form.addRow("Body", body_edit)
+        form.addRow("Text", body_edit)
         form.addRow("Font", font_combo)
         form.addRow("Font Size", font_size_spin)
-        form.addRow("Color", color_row)
+        form.addRow("Fill Color", color_row)
+        form.addRow("Text Color", text_color_row)
 
         layout = QtWidgets.QVBoxLayout(dialog)
         layout.addLayout(form)
         layout.addWidget(buttons)
 
         color_button.clicked.connect(choose_color)
+        text_color_button.clicked.connect(choose_text_color)
         buttons.accepted.connect(dialog.accept)
         buttons.rejected.connect(dialog.reject)
         update_preview()
 
         if dialog.exec_() == QtWidgets.QDialog.Accepted:
-            title = title_edit.text().strip()
             body = body_edit.toPlainText()
 
-            self.title_item.setPlainText(title or DEFAULT_STICKY_TITLE)
-            self.body_item.setPlainText(body)
+            self.body_item.setPlainText(body or DEFAULT_STICKY_BODY)
             self.font_family = font_combo.currentFont().family()
             self.font_size = font_size_spin.value()
             self.base_color = chosen_color
+            self.text_color = chosen_text_color
+            self.apply_text_color()
             self.apply_font()
             self.apply_style()
             self.update_text_layout()
@@ -931,11 +966,11 @@ class StickyNoteItem(QtWidgets.QGraphicsRectItem):
         move_handle = self.move_handle_rect()
         resize_handle = self.resize_handle_rect()
 
-        painter.setPen(QtGui.QPen(QtGui.QColor(0, 0, 0, 80), 1))
-        painter.setBrush(QtGui.QBrush(QtGui.QColor(255, 255, 255, 22)))
+        painter.setPen(QtGui.QPen(QtGui.QColor(255, 255, 255, 70), 1))
+        painter.setBrush(QtGui.QBrush(QtGui.QColor(255, 255, 255, 16)))
         painter.drawRoundedRect(move_handle, 2, 2)
 
-        painter.setPen(QtGui.QPen(QtGui.QColor(0, 0, 0, 95), 1))
+        painter.setPen(QtGui.QPen(QtGui.QColor(255, 255, 255, 62), 1))
         y = move_handle.center().y()
         painter.drawLine(
             QtCore.QPointF(move_handle.left() + 9, y - 2),
@@ -946,8 +981,8 @@ class StickyNoteItem(QtWidgets.QGraphicsRectItem):
             QtCore.QPointF(move_handle.right() - 9, y + 2)
         )
 
-        painter.setPen(QtGui.QPen(QtGui.QColor(0, 0, 0, 115), 1))
-        painter.setBrush(QtGui.QBrush(QtGui.QColor(255, 255, 255, 28)))
+        painter.setPen(QtGui.QPen(QtGui.QColor(255, 255, 255, 70), 1))
+        painter.setBrush(QtGui.QBrush(QtGui.QColor(255, 255, 255, 16)))
         painter.drawRect(resize_handle)
 
         painter.drawLine(
@@ -1081,9 +1116,18 @@ def create_sticky_at_view_center(scene, view):
     except Exception:
         center = QtCore.QPointF(0, 0)
 
+    existing_sticky_count = 0
+    for item in BACKDROP_ITEMS:
+        try:
+            if item.scene() is scene and getattr(item, "_sticky_note_item", False):
+                existing_sticky_count += 1
+        except Exception:
+            pass
+
+    offset = 28 * existing_sticky_count
     rect = QtCore.QRectF(
-        center.x() - DEFAULT_STICKY_WIDTH * 0.5,
-        center.y() - DEFAULT_STICKY_HEIGHT * 0.5,
+        center.x() - DEFAULT_STICKY_WIDTH * 0.5 + offset,
+        center.y() - DEFAULT_STICKY_HEIGHT * 0.5 + offset,
         DEFAULT_STICKY_WIDTH,
         DEFAULT_STICKY_HEIGHT
     )
@@ -1092,7 +1136,6 @@ def create_sticky_at_view_center(scene, view):
     scene.addItem(sticky)
     BACKDROP_ITEMS.append(sticky)
     sticky.setSelected(True)
-    sticky.edit_properties()
     save_data()
     return sticky
 
@@ -1119,14 +1162,20 @@ def restore_backdrops(scene):
             )
 
             if entry.get("kind", "backdrop") == "sticky":
+                sticky_body = entry.get("body", DEFAULT_STICKY_BODY)
+                old_title = entry.get("title", "")
+                if old_title:
+                    sticky_body = old_title + "\n" + sticky_body
+
                 backdrop = StickyNoteItem(
                     rect,
-                    title=entry.get("title", DEFAULT_STICKY_TITLE),
-                    body=entry.get("body", DEFAULT_STICKY_BODY),
+                    body=sticky_body,
                     color=color_from_data(entry)
                 )
                 backdrop.font_size = int(entry.get("font_size", 16))
                 backdrop.font_family = entry.get("font_family", DEFAULT_FONT_FAMILY)
+                backdrop.text_color = text_color_from_data(entry)
+                backdrop.apply_text_color()
                 backdrop.apply_font()
                 backdrop.apply_style()
                 backdrop.update_text_layout()
@@ -1158,6 +1207,17 @@ def restore_backdrops(scene):
 
     if restored:
         print("%s: restored %d DropNote(s)." % (PLUGIN_NAME, restored))
+
+
+def scene_has_runtime_items(scene):
+    for item in BACKDROP_ITEMS:
+        try:
+            if item.scene() is scene:
+                return True
+        except Exception:
+            pass
+
+    return False
 
 
 def delete_selected_dropnotes(scene):
@@ -1222,7 +1282,8 @@ def create_dropnote():
         )
         return
 
-    restore_backdrops(scene)
+    if not scene_has_runtime_items(scene):
+        restore_backdrops(scene)
 
     if create_backdrop_from_selection(scene):
         print("%s: created from selection." % PLUGIN_NAME)
@@ -1252,7 +1313,9 @@ def create_sticky_note():
         )
         return
 
-    restore_backdrops(scene)
+    if not scene_has_runtime_items(scene):
+        restore_backdrops(scene)
+
     create_sticky_at_view_center(scene, view)
     print("%s: created Sticky Note." % PLUGIN_NAME)
 
@@ -1263,6 +1326,12 @@ def run():
 
 class DropNoteEventFilter(QtCore.QObject):
     def eventFilter(self, obj, event):
+        if event.type() == QtCore.QEvent.KeyRelease:
+            key = event.key()
+            if key in (QtCore.Qt.Key_B, QtCore.Qt.Key_N, QtCore.Qt.Key_S):
+                HOTKEYS_DOWN.discard(key)
+            return False
+
         if event.type() != QtCore.QEvent.KeyPress:
             return False
 
@@ -1273,6 +1342,14 @@ class DropNoteEventFilter(QtCore.QObject):
         key = event.key()
         modifiers = event.modifiers()
         scene = get_scene(view)
+
+        if key in (QtCore.Qt.Key_B, QtCore.Qt.Key_N, QtCore.Qt.Key_S):
+            if event.isAutoRepeat() or key in HOTKEYS_DOWN:
+                event.accept()
+                return True
+
+        if key in (QtCore.Qt.Key_B, QtCore.Qt.Key_N, QtCore.Qt.Key_S) and modifiers == QtCore.Qt.ShiftModifier:
+            HOTKEYS_DOWN.add(key)
 
         if key == QtCore.Qt.Key_B and modifiers == QtCore.Qt.ShiftModifier:
             refresh_dropnotes()
@@ -1304,9 +1381,17 @@ def install_event_filter():
     if not app:
         return
 
+    old_filter = getattr(app, APP_FILTER_ATTR, None)
+    if old_filter is not None and qt_is_alive(old_filter):
+        try:
+            app.removeEventFilter(old_filter)
+        except Exception:
+            pass
+
     if EVENT_FILTER is None or not qt_is_alive(EVENT_FILTER):
         EVENT_FILTER = DropNoteEventFilter()
         app.installEventFilter(EVENT_FILTER)
+        setattr(app, APP_FILTER_ATTR, EVENT_FILTER)
         print("%s: Shift+B hotkey installed." % PLUGIN_NAME)
 
 
@@ -1318,7 +1403,14 @@ def uninstall_event_filter():
         app.removeEventFilter(EVENT_FILTER)
         print("%s: hotkey removed." % PLUGIN_NAME)
 
+    if app and getattr(app, APP_FILTER_ATTR, None) is EVENT_FILTER:
+        try:
+            delattr(app, APP_FILTER_ATTR)
+        except Exception:
+            setattr(app, APP_FILTER_ATTR, None)
+
     EVENT_FILTER = None
+    HOTKEYS_DOWN.clear()
 
 
 def cleanup_runtime_items():
