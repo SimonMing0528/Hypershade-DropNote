@@ -25,6 +25,8 @@ MOVE_HANDLE_WIDTH = 150
 MOVE_HANDLE_HEIGHT = 22
 MIN_WIDTH = 160
 MIN_HEIGHT = 110
+DEFAULT_BACKDROP_WIDTH = 420
+DEFAULT_BACKDROP_HEIGHT = 260
 
 BACKDROP_ITEMS = []
 EVENT_FILTER = None
@@ -682,6 +684,27 @@ def create_backdrop_from_selection(scene):
     return backdrop
 
 
+def create_backdrop_at_view_center(scene, view):
+    try:
+        center = view.mapToScene(view.viewport().rect().center())
+    except Exception:
+        center = QtCore.QPointF(0, 0)
+
+    rect = QtCore.QRectF(
+        center.x() - DEFAULT_BACKDROP_WIDTH * 0.5,
+        center.y() - DEFAULT_BACKDROP_HEIGHT * 0.5,
+        DEFAULT_BACKDROP_WIDTH,
+        DEFAULT_BACKDROP_HEIGHT
+    )
+
+    backdrop = DropNoteItem(rect)
+    scene.addItem(backdrop)
+    BACKDROP_ITEMS.append(backdrop)
+    backdrop.setSelected(True)
+    save_data()
+    return backdrop
+
+
 def restore_backdrops(scene):
     restored = 0
 
@@ -745,7 +768,32 @@ def delete_selected_dropnotes(scene):
     return deleted
 
 
-def run():
+def refresh_dropnotes():
+    view = find_best_graphics_view()
+
+    if view is None:
+        QtWidgets.QMessageBox.warning(
+            None,
+            PLUGIN_NAME,
+            "Could not find a Hypershade / Node Editor graph.\n\nOpen Hypershade or Node Editor, click the graph area, then run DropNote again."
+        )
+        return
+
+    scene = get_scene(view)
+
+    if scene is None:
+        QtWidgets.QMessageBox.warning(
+            None,
+            PLUGIN_NAME,
+            "Found the graph view, but could not access the scene.\n\nClick the graph area, then run DropNote again."
+        )
+        return
+
+    restore_backdrops(scene)
+    print("%s: refreshed saved DropNotes." % PLUGIN_NAME)
+
+
+def create_dropnote():
     view = find_best_graphics_view()
 
     if view is None:
@@ -771,7 +819,12 @@ def run():
     if create_backdrop_from_selection(scene):
         print("%s: created from selection." % PLUGIN_NAME)
     else:
-        print("%s: restored saved DropNotes. Select graph nodes and run again to create a new one." % PLUGIN_NAME)
+        create_backdrop_at_view_center(scene, view)
+        print("%s: created at view center." % PLUGIN_NAME)
+
+
+def run():
+    create_dropnote()
 
 
 class DropNoteEventFilter(QtCore.QObject):
@@ -788,7 +841,12 @@ class DropNoteEventFilter(QtCore.QObject):
         scene = get_scene(view)
 
         if key == QtCore.Qt.Key_B and modifiers == QtCore.Qt.ShiftModifier:
-            run()
+            refresh_dropnotes()
+            event.accept()
+            return True
+
+        if key == QtCore.Qt.Key_N and modifiers == QtCore.Qt.ShiftModifier:
+            create_dropnote()
             event.accept()
             return True
 
