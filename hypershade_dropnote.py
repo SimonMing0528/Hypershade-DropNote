@@ -727,6 +727,7 @@ class StickyNoteItem(QtWidgets.QGraphicsRectItem):
         self.setZValue(-99990)
         self.setAcceptHoverEvents(True)
         self.setAcceptedMouseButtons(QtCore.Qt.LeftButton | QtCore.Qt.RightButton)
+        self.setFlag(QtWidgets.QGraphicsItem.ItemIsMovable, True)
         self.setFlag(QtWidgets.QGraphicsItem.ItemIsSelectable, True)
 
         self.body_item = QtWidgets.QGraphicsTextItem(body, self)
@@ -790,16 +791,6 @@ class StickyNoteItem(QtWidgets.QGraphicsRectItem):
             self.prepareGeometryChange()
             self.setRect(rect)
             self.update_text_layout()
-
-    def move_handle_rect(self):
-        rect = self.rect()
-        width = min(MOVE_HANDLE_WIDTH, max(50, rect.width() * 0.36))
-        return QtCore.QRectF(
-            rect.center().x() - width * 0.5,
-            rect.top() + 4,
-            width,
-            MOVE_HANDLE_HEIGHT
-        )
 
     def resize_handle_rect(self):
         rect = self.rect()
@@ -985,23 +976,7 @@ class StickyNoteItem(QtWidgets.QGraphicsRectItem):
             QtCore.QPointF(rect.left() + cut, rect.top())
         )
 
-        move_handle = self.move_handle_rect()
         resize_handle = self.resize_handle_rect()
-
-        painter.setPen(QtGui.QPen(QtGui.QColor(255, 255, 255, 70), 1))
-        painter.setBrush(QtGui.QBrush(QtGui.QColor(255, 255, 255, 16)))
-        painter.drawRoundedRect(move_handle, 2, 2)
-
-        painter.setPen(QtGui.QPen(QtGui.QColor(255, 255, 255, 62), 1))
-        y = move_handle.center().y()
-        painter.drawLine(
-            QtCore.QPointF(move_handle.left() + 9, y - 2),
-            QtCore.QPointF(move_handle.right() - 9, y - 2)
-        )
-        painter.drawLine(
-            QtCore.QPointF(move_handle.left() + 9, y + 2),
-            QtCore.QPointF(move_handle.right() - 9, y + 2)
-        )
 
         painter.setPen(QtGui.QPen(QtGui.QColor(255, 255, 255, 70), 1))
         painter.setBrush(QtGui.QBrush(QtGui.QColor(255, 255, 255, 16)))
@@ -1013,14 +988,6 @@ class StickyNoteItem(QtWidgets.QGraphicsRectItem):
         )
 
     def mousePressEvent(self, event):
-        if event.button() == QtCore.Qt.LeftButton and self.move_handle_rect().contains(event.pos()):
-            self.moving_from_handle = True
-            self.move_start_pos = event.scenePos()
-            self.move_start_item_pos = QtCore.QPointF(self.pos())
-            self.setSelected(True)
-            event.accept()
-            return
-
         if event.button() == QtCore.Qt.LeftButton and self.resize_handle_rect().contains(event.pos()):
             self.resizing = True
             self.resize_start_pos = event.scenePos()
@@ -1031,12 +998,6 @@ class StickyNoteItem(QtWidgets.QGraphicsRectItem):
         super(StickyNoteItem, self).mousePressEvent(event)
 
     def mouseMoveEvent(self, event):
-        if self.moving_from_handle:
-            delta = event.scenePos() - self.move_start_pos
-            self.setPos(self.move_start_item_pos + delta)
-            event.accept()
-            return
-
         if self.resizing:
             delta = event.scenePos() - self.resize_start_pos
             rect = QtCore.QRectF(self.resize_start_rect)
@@ -1053,14 +1014,6 @@ class StickyNoteItem(QtWidgets.QGraphicsRectItem):
         super(StickyNoteItem, self).mouseMoveEvent(event)
 
     def mouseReleaseEvent(self, event):
-        if self.moving_from_handle:
-            self.moving_from_handle = False
-            self.move_start_pos = None
-            self.move_start_item_pos = None
-            save_data()
-            event.accept()
-            return
-
         if self.resizing:
             self.resizing = False
             self.resize_start_pos = None
