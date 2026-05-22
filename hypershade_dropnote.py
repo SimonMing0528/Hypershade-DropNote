@@ -20,6 +20,8 @@ STORAGE_ATTR = "data"
 DEFAULT_TITLE = "Shader Group"
 DEFAULT_COLOR = (255, 170, 35, 72)
 HANDLE_SIZE = 22
+MOVE_HANDLE_WIDTH = 150
+MOVE_HANDLE_HEIGHT = 22
 MIN_WIDTH = 160
 MIN_HEIGHT = 110
 
@@ -272,13 +274,15 @@ class DropNoteItem(QtWidgets.QGraphicsRectItem):
         self._dropnote_item = True
         self.base_color = color or QtGui.QColor(*DEFAULT_COLOR)
         self.resizing = False
+        self.moving_from_handle = False
         self.resize_start_pos = None
         self.resize_start_rect = None
+        self.move_start_pos = None
+        self.move_start_item_pos = None
 
         self.setZValue(-100000)
         self.setAcceptHoverEvents(True)
         self.setAcceptedMouseButtons(QtCore.Qt.LeftButton | QtCore.Qt.RightButton)
-        self.setFlag(QtWidgets.QGraphicsItem.ItemIsMovable, True)
         self.setFlag(QtWidgets.QGraphicsItem.ItemIsSelectable, True)
 
         self.label = QtWidgets.QGraphicsTextItem(title, self)
@@ -314,6 +318,16 @@ class DropNoteItem(QtWidgets.QGraphicsRectItem):
             rect.bottom() - HANDLE_SIZE,
             HANDLE_SIZE,
             HANDLE_SIZE
+        )
+
+    def move_handle_rect(self):
+        rect = self.rect()
+        width = min(MOVE_HANDLE_WIDTH, max(60, rect.width() * 0.42))
+        return QtCore.QRectF(
+            rect.center().x() - width * 0.5,
+            rect.top() + 4,
+            width,
+            MOVE_HANDLE_HEIGHT
         )
 
     def edit_properties(self):
@@ -434,6 +448,22 @@ class DropNoteItem(QtWidgets.QGraphicsRectItem):
         super(DropNoteItem, self).paint(painter, option, widget)
 
         handle = self.handle_rect()
+        move_handle = self.move_handle_rect()
+
+        painter.setPen(QtGui.QPen(QtGui.QColor(255, 255, 255, 170), 1))
+        painter.setBrush(QtGui.QBrush(QtGui.QColor(255, 255, 255, 42)))
+        painter.drawRoundedRect(move_handle, 3, 3)
+
+        painter.setPen(QtGui.QPen(QtGui.QColor(255, 255, 255, 135), 1))
+        y = move_handle.center().y()
+        painter.drawLine(
+            QtCore.QPointF(move_handle.left() + 14, y - 3),
+            QtCore.QPointF(move_handle.right() - 14, y - 3)
+        )
+        painter.drawLine(
+            QtCore.QPointF(move_handle.left() + 14, y + 3),
+            QtCore.QPointF(move_handle.right() - 14, y + 3)
+        )
 
         painter.setPen(QtGui.QPen(QtGui.QColor(255, 255, 255, 210), 1))
         painter.setBrush(QtGui.QBrush(QtGui.QColor(255, 255, 255, 90)))
@@ -455,6 +485,14 @@ class DropNoteItem(QtWidgets.QGraphicsRectItem):
             event.accept()
             return
 
+        if event.button() == QtCore.Qt.LeftButton and self.move_handle_rect().contains(event.pos()):
+            self.moving_from_handle = True
+            self.move_start_pos = event.scenePos()
+            self.move_start_item_pos = QtCore.QPointF(self.pos())
+            self.setSelected(True)
+            event.accept()
+            return
+
         if event.button() == QtCore.Qt.LeftButton and self.handle_rect().contains(event.pos()):
             self.resizing = True
             self.resize_start_pos = event.scenePos()
@@ -465,6 +503,12 @@ class DropNoteItem(QtWidgets.QGraphicsRectItem):
         super(DropNoteItem, self).mousePressEvent(event)
 
     def mouseMoveEvent(self, event):
+        if self.moving_from_handle:
+            delta = event.scenePos() - self.move_start_pos
+            self.setPos(self.move_start_item_pos + delta)
+            event.accept()
+            return
+
         if self.resizing:
             delta = event.scenePos() - self.resize_start_pos
             rect = QtCore.QRectF(self.resize_start_rect)
@@ -481,6 +525,14 @@ class DropNoteItem(QtWidgets.QGraphicsRectItem):
         super(DropNoteItem, self).mouseMoveEvent(event)
 
     def mouseReleaseEvent(self, event):
+        if self.moving_from_handle:
+            self.moving_from_handle = False
+            self.move_start_pos = None
+            self.move_start_item_pos = None
+            save_data()
+            event.accept()
+            return
+
         if self.resizing:
             self.resizing = False
             self.resize_start_pos = None
