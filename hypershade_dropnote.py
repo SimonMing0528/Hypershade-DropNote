@@ -20,6 +20,7 @@ STORAGE_ATTR = "data"
 DEFAULT_TITLE = "Shader Group"
 DEFAULT_COLOR = (255, 170, 35, 72)
 DEFAULT_FONT_SIZE = 18
+DEFAULT_FONT_FAMILY = ""
 HANDLE_SIZE = 16
 MOVE_HANDLE_WIDTH = 76
 MOVE_HANDLE_HEIGHT = 10
@@ -257,6 +258,7 @@ def save_data():
             "h": rect.height(),
             "color": [color.red(), color.green(), color.blue(), color.alpha()],
             "font_size": item.font_size,
+            "font_family": item.font_family,
             "fill_transparent": item.fill_transparent,
         })
 
@@ -280,6 +282,7 @@ class DropNoteItem(QtWidgets.QGraphicsRectItem):
         self.base_color = color or QtGui.QColor(*DEFAULT_COLOR)
         self.fill_transparent = False
         self.font_size = DEFAULT_FONT_SIZE
+        self.font_family = DEFAULT_FONT_FAMILY
         self.resizing = False
         self.resize_corner = None
         self.moving_from_handle = False
@@ -299,6 +302,8 @@ class DropNoteItem(QtWidgets.QGraphicsRectItem):
         font = QtGui.QFont()
         font.setBold(True)
         font.setPointSize(self.font_size)
+        if self.font_family:
+            font.setFamily(self.font_family)
         self.label.setFont(font)
 
         self.apply_style()
@@ -325,6 +330,8 @@ class DropNoteItem(QtWidgets.QGraphicsRectItem):
     def apply_font_size(self):
         font = self.label.font()
         font.setPointSize(self.font_size)
+        if self.font_family:
+            font.setFamily(self.font_family)
         self.label.setFont(font)
 
     def handle_rect(self):
@@ -371,6 +378,9 @@ class DropNoteItem(QtWidgets.QGraphicsRectItem):
         dialog.setWindowTitle("Edit DropNote")
 
         name_edit = QtWidgets.QLineEdit(self.label.toPlainText())
+        font_combo = QtWidgets.QFontComboBox()
+        if self.font_family:
+            font_combo.setCurrentFont(QtGui.QFont(self.font_family))
         font_size_spin = QtWidgets.QSpinBox()
         font_size_spin.setRange(8, 48)
         font_size_spin.setValue(self.font_size)
@@ -415,6 +425,7 @@ class DropNoteItem(QtWidgets.QGraphicsRectItem):
         color_row.addStretch()
 
         form.addRow("Name", name_edit)
+        form.addRow("Font", font_combo)
         form.addRow("Name Size", font_size_spin)
         form.addRow("Color", color_row)
         form.addRow("", transparent_check)
@@ -434,6 +445,7 @@ class DropNoteItem(QtWidgets.QGraphicsRectItem):
                 self.label.setPlainText(text)
 
             self.font_size = font_size_spin.value()
+            self.font_family = font_combo.currentFont().family()
             self.fill_transparent = transparent_check.isChecked()
             self.base_color = chosen_color
             self.apply_font_size()
@@ -734,6 +746,7 @@ def restore_backdrops(scene):
                 color=color_from_data(entry)
             )
             backdrop.font_size = int(entry.get("font_size", DEFAULT_FONT_SIZE))
+            backdrop.font_family = entry.get("font_family", DEFAULT_FONT_FAMILY)
             backdrop.fill_transparent = bool(entry.get("fill_transparent", False))
             backdrop.apply_font_size()
             backdrop.apply_style()
