@@ -41,6 +41,7 @@ EVENT_FILTER = None
 HOTKEYS_DOWN = set()
 APP_FILTER_ATTR = "_hypershade_dropnote_event_filter"
 ITEMS_VISIBLE = False
+CURRENT_PANEL_KEY = "__default__"
 
 
 def qt_is_alive(obj):
@@ -57,6 +58,41 @@ def get_scene(view):
     except Exception:
         pass
     return None
+
+
+def panel_key_from_view(view):
+    widget = view
+
+    while widget is not None:
+        try:
+            if isinstance(widget, QtWidgets.QTabWidget):
+                index = widget.currentIndex()
+                title = widget.tabText(index).strip()
+                if title:
+                    return "tab:" + title
+        except Exception:
+            pass
+
+        try:
+            widget = widget.parent()
+        except Exception:
+            widget = None
+
+    scene = get_scene(view)
+    if scene is not None:
+        try:
+            return "scene:%s" % int(shiboken.getCppPointer(scene)[0])
+        except Exception:
+            return "scene:%s" % id(scene)
+
+    return "__default__"
+
+
+def set_current_panel_key_from_view(view):
+    global CURRENT_PANEL_KEY
+
+    CURRENT_PANEL_KEY = panel_key_from_view(view)
+    return CURRENT_PANEL_KEY
 
 
 def all_graphics_views():
@@ -248,7 +284,12 @@ def load_data():
 
 def save_data():
     node = ensure_storage_node()
-    data = []
+    old_data = load_data()
+    data = [
+        entry for entry in old_data
+        if entry.get("panel_key", CURRENT_PANEL_KEY) != CURRENT_PANEL_KEY
+    ]
+    saved_count = 0
 
     for item in list(BACKDROP_ITEMS):
         if item.scene() is None:
@@ -256,7 +297,10 @@ def save_data():
 
         if hasattr(item, "to_data"):
             try:
-                data.append(item.to_data())
+                entry = item.to_data()
+                entry["panel_key"] = CURRENT_PANEL_KEY
+                data.append(entry)
+                saved_count += 1
             except Exception as error:
                 print("%s: failed to save one item: %s" % (PLUGIN_NAME, error))
             continue
@@ -277,10 +321,12 @@ def save_data():
             "font_size": item.font_size,
             "font_family": item.font_family,
             "fill_transparent": item.fill_transparent,
+            "panel_key": CURRENT_PANEL_KEY,
         })
+        saved_count += 1
 
     cmds.setAttr(node + "." + STORAGE_ATTR, json.dumps(data), type="string")
-    print("%s: saved %d DropNote(s)." % (PLUGIN_NAME, len(data)))
+    print("%s: saved %d item(s) for %s." % (PLUGIN_NAME, saved_count, CURRENT_PANEL_KEY))
 
 
 def color_from_data(entry):
@@ -1126,8 +1172,11 @@ def create_sticky_at_view_center(scene, view):
     return sticky
 
 
-def restore_backdrops(scene):
+def restore_backdrops(scene, panel_key=None):
     global ITEMS_VISIBLE
+
+    if panel_key is None:
+        panel_key = CURRENT_PANEL_KEY
 
     restored = 0
 
@@ -1141,6 +1190,10 @@ def restore_backdrops(scene):
     BACKDROP_ITEMS[:] = []
 
     for entry in load_data():
+        entry_panel_key = entry.get("panel_key")
+        if entry_panel_key is not None and entry_panel_key != panel_key:
+            continue
+
         try:
             rect = QtCore.QRectF(
                 float(entry.get("rect_x", 0)),
@@ -1215,6 +1268,35 @@ def hide_runtime_items():
     print("%s: hidden runtime items." % PLUGIN_NAME)
 
 
+def runtime_items_for_scene(scene):
+    items = []
+
+    for item in BACKDROP_ITEMS:
+        try:
+            if item.scene() is scene:
+                items.append(item)
+        except Exception:
+            pass
+
+    return items
+
+
+def hide_runtime_items_for_scene(scene):
+    global ITEMS_VISIBLE
+
+    for item in runtime_items_for_scene(scene):
+        try:
+            scene.removeItem(item)
+        except Exception:
+            pass
+
+        if item in BACKDROP_ITEMS:
+            BACKDROP_ITEMS.remove(item)
+
+    ITEMS_VISIBLE = bool(BACKDROP_ITEMS)
+    print("%s: hidden runtime items for %s." % (PLUGIN_NAME, CURRENT_PANEL_KEY))
+
+
 def scene_has_runtime_items(scene):
     for item in BACKDROP_ITEMS:
         try:
@@ -1263,13 +1345,26 @@ def refresh_dropnotes():
         )
         return
 
-    restore_backdrops(scene)
+    panel_key = set_current_panel_key_from_view(view)
+    restore_backdrops(scene, panel_key)
     print("%s: shown saved DropNotes." % PLUGIN_NAME)
 
 
 def toggle_dropnotes_visibility():
-    if ITEMS_VISIBLE and BACKDROP_ITEMS:
-        hide_runtime_items()
+    view = find_best_graphics_view()
+    if view is None:
+        refresh_dropnotes()
+        return
+
+    scene = get_scene(view)
+    if scene is None:
+        refresh_dropnotes()
+        return
+
+    set_current_panel_key_from_view(view)
+
+    if runtime_items_for_scene(scene):
+        hide_runtime_items_for_scene(scene)
     else:
         refresh_dropnotes()
 
@@ -1295,8 +1390,10 @@ def create_dropnote():
         )
         return
 
+    panel_key = set_current_panel_key_from_view(view)
+
     if not scene_has_runtime_items(scene):
-        restore_backdrops(scene)
+        restore_backdrops(scene, panel_key)
 
     if create_backdrop_from_selection(scene):
         print("%s: created from selection." % PLUGIN_NAME)
@@ -1326,8 +1423,10 @@ def create_sticky_note():
         )
         return
 
+    panel_key = set_current_panel_key_from_view(view)
+
     if not scene_has_runtime_items(scene):
-        restore_backdrops(scene)
+        restore_backdrops(scene, panel_key)
 
     create_sticky_at_view_center(scene, view)
     print("%s: created Sticky Note." % PLUGIN_NAME)
